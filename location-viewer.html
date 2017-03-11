@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
+    <meta charset="utf-8">
+    <title>Marker Clustering</title>
+    <style>
+        /* Always set the map height explicitly to define the size of the div
+         * element that contains the map. */
+        #map {
+            height: 100%;
+        }
+        /* Optional: Makes the sample page fill the window. */
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+        #progress {
+            width: 100%;
+            height: 100%;
+        }
+        #bar {
+            width: 1%;
+            height: 100%;
+            background-color: rgb(200, 223, 188);
+        }
+        #label {
+            text-align: center;
+            line-height: 30px;
+        }
+    </style>
+</head>
+<body>
+<div id="progress">
+    <div id="bar">
+        <div id="label">0%</div>
+    </div>
+</div>
+<div id="map"></div>
+<script src="https://developers.google.com/maps/documentation/javascript/examples/markerclusterer/markerclusterer.js">
+</script>
+<script async defer
+        src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAPK90vUSH9E4bU-hYpuD0jlmsHYOZGS0E"> <!--&callback=mergeDuplicatedCities"-->
+</script>
+<script>
+
+    var cities = [
+        "Zwolle",
+        "Zwolle",
+        "Zwolle",
+        "Hardenberg",
+        "Emst",
+        "Dalfsen",
+        "Emmeloord",
+        "Genemuiden",
+        "Hollandscheveld",
+        "Arnhem",
+        "Bunschoten",
+        "IJsselmuiden",
+        "Ermelo",
+        "Urk",
+        "Hooglanderveen",
+        "Barneveld",
+        "Zwolle",
+        "Lemerveld",
+        "Koekange",
+        "Rouveen",
+        "Staphorst",
+        "Emmeloord",
+        "Doornspijk",
+        "Zwolle",
+        "Ede",
+        "Slagharen",
+        "Wezep",
+        "Kampen",
+        "Zwolle",
+        "Marknesse",
+        "Zeewolde",
+        "Olst",
+        "Zwolle",
+        "Hoogeveen",
+        "Zwolle",
+        "Lelystad",
+        "Genemuiden",
+        "Rutten",
+        "Emmeloord",
+        "Putten",
+        "Harderwijk",
+        "Urk",
+        "Epe",
+        "Wezep",
+        "Zwolle",
+        "Zwolle",
+        "Meppel",
+        "Zwolle",
+        "Wierden",
+        "Zutphen",
+        "Witharen",
+        "Welsum",
+        "Teuge",
+        "Dronten",
+        "Dronten",
+        "Dalfsen",
+        "Amersfoort",
+        "Zwolle",
+        "Dronten",
+        "Zwolle"
+    ];
+    var cities_count = new Object();
+    var locations = new Array();
+    var request = new Array();
+    var request_retries = new Array();
+    var loading_perc = 0;
+    var loading_perc_rounded;
+
+    var api_max_retries = 3;
+    var api_timeout = 5000;
+    var api_n_reqest_per_sec = 5;
+
+
+    function mergeDuplicatedCities() {
+        for (var i = 0; i < cities.length; i++) {
+            if (cities_count[cities[i]] === undefined) {
+                cities_count[cities[i]] = 0;
+            }
+            cities_count[cities[i]] += 1;
+        }
+    }
+
+    function getLocationDetails(city_name, count) {
+        var url = "http://maps.googleapis.com/maps/api/geocode/json?address=" + city_name;
+        request[city_name] = new XMLHttpRequest();
+        request[city_name].open("GET", url, true);
+        request[city_name].setRequestHeader('Content-Type', 'application/json');
+        request[city_name].timeout = api_timeout;
+        request[city_name].onload = function () {
+            if (this.responseText.length !== 0) {
+                var json_response = JSON.parse(this.responseText);
+                if (json_response.error_message === undefined) {
+                    loading_perc += (1 / Object.keys(cities_count).length) * 100;
+                    loading_perc_rounded = Math.round(loading_perc);
+                    document.getElementById("bar").setAttribute("style", "width: " + loading_perc + "%");
+                    document.getElementById("label").innerText = loading_perc_rounded + "%";
+                    for (var i = 0; i < cities_count[city_name]; i++) {
+                        locations.push(json_response.results[0].geometry.location);
+                    }
+
+                    if (cities.length === locations.length) {
+                        document.getElementById("progress").setAttribute("style", "display:none;");
+                        initMap();
+                    }
+                } else {
+                    console.error("Exceeded rate-limit for Google Geocode API");
+                    retry();
+                }
+            }
+
+        };
+        request[city_name].ontimeout = function () {
+            console.error("Timeout of call to " + url);
+            retry();
+        }
+        request[city_name].send();
+
+        function retry() {
+            ++request_retries[city_name];
+            if (request_retries[city_name] < api_max_retries) {
+                console.log("Retry of call to " + url);
+                setTimeout(getLocationDetails.bind(null, city_name, count), 1000);
+            } else {
+                console.error("3 retries to " + url + " failed!");
+            }
+        }
+    }
+
+    function getCoordinates() {
+        for (var i = 0; i < Object.keys(cities_count).length; i++) {
+            setTimeout(getLocationDetails.bind(null,
+                Object.keys(cities_count)[i], cities_count[Object.keys(cities_count)[i]]), 1000 * (i / api_n_reqest_per_sec));
+        }
+    }
+
+    function initMap() {
+        var map = new google.maps.Map(document.getElementById('map'), {
+            zoom: 9,
+            center: {lat: 52.5167747, lng: 6.0830219}
+        });
+
+        // Add some markers to the map.
+        // Note: The code uses the JavaScript Array.prototype.map() method to
+        // create an array of markers based on a given "locations" array.
+        // The map() method here has nothing to do with the Google Maps API.
+        var markers = locations.map(function (location, i) {
+            return new google.maps.Marker({
+                position: locations[i]
+            });
+        });
+
+        // Add a marker clusterer to manage the markers.
+        var markerCluster = new MarkerClusterer(map, markers,
+            {imagePath: 'https://developers.google.com/maps/documentation/javascript/examples/markerclusterer/m'});
+    }
+
+    (function() {
+        mergeDuplicatedCities();
+        getCoordinates();
+    })();
+</script>
+</body>
+</html>
